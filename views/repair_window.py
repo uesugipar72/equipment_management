@@ -1,5 +1,6 @@
 import os
 import json
+import shutil
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 from tkcalendar import DateEntry
@@ -227,16 +228,33 @@ class EditRepairWindow(tk.Toplevel):
             widget.insert(0, value)
 
     def _create_widgets(self):
+        # 🎯【解決策】readonlyのまま、見た目だけを「白背景・黒文字」に強制変更する
+        style = ttk.Style()
+        style.map('TCombobox',
+            fieldbackground=[('readonly', 'white')],
+            foreground=[('readonly', 'black')]
+        )
+
         frame_top = tk.Frame(self)
         frame_top.pack(pady=10)
+        
         for i, label in enumerate(self.FIELD_LABELS):
             tk.Label(frame_top, text=label).grid(row=i, column=0, padx=5, pady=3, sticky="e")
-            if "日" in label: entry = NullableDateEntry(frame_top, date_pattern="yyyy-mm-dd", width=38)
-            elif label == "対応": entry = ttk.Combobox(frame_top, values=list(self.types.values()), state="readonly", width=37)
-            elif label == "状態": entry = ttk.Combobox(frame_top, values=list(self.statuses.values()), state="readonly", width=37)
-            elif label == "業者": entry = ttk.Combobox(frame_top, values=list(self.vendors.values()), state="readonly", width=37)
-            elif label in ("詳細", "備考"): entry = tk.Text(frame_top, width=40, height=3)
-            else: entry = tk.Entry(frame_top, width=40)
+            
+            # state="readonly" は維持したまま、上記のstyle設定によって白背景になります
+            if "日" in label: 
+                entry = NullableDateEntry(frame_top, date_pattern="yyyy-mm-dd", width=38)
+            elif label == "対応": 
+                entry = ttk.Combobox(frame_top, values=list(self.types.values()), state="readonly", width=37)
+            elif label == "状態": 
+                entry = ttk.Combobox(frame_top, values=list(self.statuses.values()), state="readonly", width=37)
+            elif label == "業者": 
+                entry = ttk.Combobox(frame_top, values=list(self.vendors.values()), state="readonly", width=37)
+            elif label in ("詳細", "備考"): 
+                entry = tk.Text(frame_top, width=40, height=3)
+            else: 
+                entry = tk.Entry(frame_top, width=40)
+                
             entry.grid(row=i, column=1, padx=5, pady=3, sticky="w")
             self.entries[label] = entry
 
@@ -250,6 +268,8 @@ class EditRepairWindow(tk.Toplevel):
     def _create_buttons(self):
         frame_btn = tk.Frame(self)
         frame_btn.pack(pady=10)
+        green_color = "#2E7D32"
+
         tk.Button(frame_btn, text="保存", width=12, command=self.save_changes).pack(side="left", padx=10)
         tk.Button(frame_btn, text="PDF添付", width=12, command=self.attach_pdf).pack(side="left", padx=10)
         tk.Button(frame_btn, text="保存せずに戻る", width=15, command=self.destroy).pack(side="left", padx=10)
@@ -325,12 +345,21 @@ class EditRepairWindow(tk.Toplevel):
             save_dir = os.path.join("attached_pdfs", str(self.repair_id))
             os.makedirs(save_dir, exist_ok=True)
             save_path = os.path.join(save_dir, new_name)
+            
+            # コピー処理
+            #$インポートモジュールをその場で直接指定して実行します
+            #__import__('shutil').copy(file_path, save_path)
             shutil.copy(file_path, save_path)
+
             messagebox.showinfo("完了", f"PDFを添付しました。")
             self.load_pdf_list()
             self.load_repair_data(self.repair_id)
-            self.lift(); self.focus_force()
-        except Exception as e: messagebox.showerror("添付エラー", f"PDF添付中にエラーが発生しました:\n{e}")
+            self.lift()
+            self.focus_force()
+            
+        except Exception as e: 
+            # 🎯 末尾の閉じ括弧を忘れずに改行して記述
+            messagebox.showerror("添付エラー", f"PDF添付中にエラーが発生しました:\n{e}")
 
     def load_pdf_list(self):
         self.pdf_listbox.delete(0, tk.END)
