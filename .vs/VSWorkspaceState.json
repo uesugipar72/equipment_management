@@ -1,11 +1,8 @@
 {
   "ExpandedNodes": [
     "",
-    "\\gui",
     "\\models",
-    "\\service",
     "\\views"
   ],
-  "SelectedNode": "\\main.py",
   "PreviewInSolutionExplorer": false
 }

@@ -1,14 +1,16 @@
-import sqlite3
-import tkinter as tk
-from tkinter import ttk, messagebox
-from contextlib import contextmanager
-from typing import Dict, Any, Iterator
 import os
 import json
+import tkinter as tk
+from tkinter import ttk, messagebox
+from typing import Dict, Any
 
-# 外部モジュール
-from cls_master_data_fetcher import MasterDataFetcher
+# 🎯 作成した Model 層と DBManager から必要なものをインポート
+from models.db_manager import DBManager
+from models.repair_model import RepairModel
 from edit_repair_window import EditRepairWindow
+
+# もし MasterDataFetcher を利用し続ける場合は、既存のパスからインポートしてください
+# from cls_master_data_fetcher import MasterDataFetcher
 
 
 class RepairInfoWindow(tk.Toplevel):
@@ -17,12 +19,8 @@ class RepairInfoWindow(tk.Toplevel):
     メインアプリから Toplevel として呼び出して利用します。
     """
 
-    # JSON ファイルからデータベース名を取得
-    config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
-    DB_NAME = config.get("db_name", "default.db")  # デフォルト値を設定
-    
+    # 🎯 データベースの絶対パスは DBManager から直接取得する
+    DB_NAME = DBManager.DB_PATH
 
     FORM_CONFIG = [
         ("カテゴリ名", "categorie_name"), ("器材番号", "equipment_code"),
@@ -38,35 +36,25 @@ class RepairInfoWindow(tk.Toplevel):
         "repair_type": {"text": "修理種別", "width": 90},
         "vendor": {"text": "業者", "width": 130},
         "technician": {"text": "技術者", "width": 100},
-        "details": {"text": "詳細", "width": 300},  # 20251002 追加
-        "remarks": {"text": "備考", "width": 200},  # 備考は一旦非表示
+        "details": {"text": "詳細", "width": 300},
+        "remarks": {"text": "備考", "width": 200},
     }
 
-    DEFAULT_MASTER_DATA = {
-        "repair_type_master": [
-            (1, "随意対応"), (2, "保守対応"), (3, "対応未定"), (4, "修理不能"), (5, "使用不能")
-        ],
-        "repair_statuse_master": [
-            (1, "修理依頼中"), (2, "修理不能"), (3, "修理完了"), (4, "更新申請中"), (5, "廃棄")
-        ]
-    }
-
-    def __init__(self, parent: tk.Widget, equipment_code:str):
+    def __init__(self, parent: tk.Widget, equipment_code: str):
         """
         Args:
             parent: 呼び出し元ウィンドウ (通常は root)
             equipment_code: 表示対象の器材ID
         """
         super().__init__(parent)
-        self.equipment_db_id = None  # ← DBの主キー
-        self.equipment_code = equipment_code              # ← 表示用の器材番号
+        self.equipment_db_id = None  # DBの主キー
+        self.equipment_code = equipment_code  # 表示用の器材番号
 
-        self.fetcher = MasterDataFetcher(self.DB_NAME)
-        self.master_lookups = self._load_all_master_data_as_lookup()
+        # 🎯 参照関係の名称変換は RepairModel に一括管理させるため、
+        # 　 画面側での個別 lookup 構築処理は不要（RepairModel側で結合して取得するため削除）
         self.equipment_data: Dict[str, Any] = {}
         self.input_vars: Dict[str, tk.StringVar] = {}
         self.repair_tree: ttk.Treeview = None
-
 
         self.title("器材情報（参照）")
         self.geometry("1500x500")
@@ -75,26 +63,6 @@ class RepairInfoWindow(tk.Toplevel):
 
         self._setup_ui()
         self._load_and_display_data()
-
-    @contextmanager
-    def _get_db_cursor(self) -> Iterator[sqlite3.Cursor]:
-        conn = sqlite3.connect(self.DB_NAME)
-        try:
-            yield conn.cursor()
-        finally:
-            conn.close()
-
-    def _load_all_master_data_as_lookup(self) -> Dict[str, Dict[int, str]]:
-        tables = [
-            "categorie_master", "statuse_master", "department_master", "room_master",
-            "manufacturer_master", "celler_master",
-            "repair_type_master", "repair_statuse_master",
-        ]
-        lookups = {}
-        for table in tables:
-            data = self.fetcher.fetch_all(table) or self.DEFAULT_MASTER_DATA.get(table, [])
-            lookups[table] = {id: name for id, name in data}
-        return lookups
 
     def _setup_ui(self):
         main_frame = tk.Frame(self)
@@ -132,9 +100,8 @@ class RepairInfoWindow(tk.Toplevel):
             config = self.REPAIR_HISTORY_COLUMNS[col_id]
             self.repair_tree.heading(col_id, text=config["text"])
             self.repair_tree.column(col_id, width=config["width"], anchor="w", stretch=False)
-            # デフォルトは左寄せ
+            
             anchor = "center"
-            # 完了日だけ中央寄せ
             if col_id in ("details", "remarks"):
                 anchor = "w"
 
@@ -152,68 +119,43 @@ class RepairInfoWindow(tk.Toplevel):
         self.repair_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
     def _load_and_display_data(self):
-        with self._get_db_cursor() as cursor:
-            cursor.execute("SELECT * FROM equipment WHERE equipment_code = ?", (self.equipment_code,))
-            data = cursor.fetchone()
+        """🎯 Model層(RepairModel)を経由して器材の基本情報を取得"""
+        try:
+            data = RepairModel.fetch_equipment_detail(self.equipment_code)
+        except Exception as e:
+            messagebox.showerror("システムエラー", f"器材情報の取得に失敗しました:\n{e}")
+            self.destroy()
+            return
 
         if not data:
             messagebox.showerror("データエラー", f"器材コード = {self.equipment_code} のデータが見つかりません。")
             self.destroy()
             return
 
-        self.equipment_db_id = data[0]  # ← DB主キーを保持（修理追加用に必要）
-        self.equipment_data = {
-            "id": data[0],
-            "equipment_code": data[1],  # 器材コード
-            "name": data[2],
-            "categorie_name": self.master_lookups["categorie_master"].get(data[4], "不明"),
-            "status_name": self.master_lookups["statuse_master"].get(data[5], "不明"),
-            "department_name": self.master_lookups["department_master"].get(data[6], "不明"),
-            "room_name": self.master_lookups["room_master"].get(data[7], "不明"),
-            "manufacturer_name": self.master_lookups["manufacturer_master"].get(data[8], "不明"),
-            "celler_name": self.master_lookups["celler_master"].get(data[9], "不明"),
-            "remarks": data[10],
-            "purchase_date": data[11],
-            "model": data[12]
-        }
+        self.equipment_db_id = data["id"]  # DB主キーを保持
+        self.equipment_data = data
 
         self._update_form()
         self.refresh_repair_history()
-
 
     def _update_form(self):
         for key, var in self.input_vars.items():
             var.set(self.equipment_data.get(key, ""))
 
     def refresh_repair_history(self):
+        """🎯 Model層(RepairModel)を経由して修理履歴を取得し描画"""
         for item in self.repair_tree.get_children():
             self.repair_tree.delete(item)
 
-        query = """
-            SELECT r.id,
-                rs.name AS status, 
-                r.request_date,
-                r.completion_date,
-                rt.name AS repair_type,
-                c.name AS vendor,
-                r.technician,
-                r.details,
-                r.remarks
-            FROM repair r
-            LEFT JOIN repair_statuse_master rs ON r.repairstatuses = rs.id
-            LEFT JOIN repair_type_master rt ON r.repairtype = rt.id
-            LEFT JOIN celler_master c ON r.vendor = c.id
-            WHERE r.equipment_code = ?
-            ORDER BY r.request_date DESC;
-        """
-        with self._get_db_cursor() as cursor:
-            cursor.execute(query, (self.equipment_code,),)
-            repairs = cursor.fetchall()
-
-        for row in repairs:
-            # row[0] = id, 以降を TreeView に渡す
-            self.repair_tree.insert("", tk.END, iid=str(row[0]), values=row[1:])
-
+        try:
+            # 🎯 SQLクエリは書かず、Model層のメソッドを呼び出すだけ
+            repairs = RepairModel.fetch_history_by_code(self.equipment_code)
+            
+            for row in repairs:
+                # row[0] = id, 以降(values)を TreeView に渡す
+                self.repair_tree.insert("", tk.END, iid=str(row[0]), values=row[1:])
+        except Exception as e:
+            messagebox.showerror("読込エラー", f"修理履歴の取得中にエラーが発生しました:\n{e}")
 
     def _open_add_repair(self):
         try:
@@ -230,7 +172,6 @@ class RepairInfoWindow(tk.Toplevel):
             )
         except Exception as e:
             messagebox.showerror("例外発生", f"修理情報追加中にエラーが発生しました:\n{e}")
-
 
     def _open_edit_repair(self):
         selected_ids = self.repair_tree.selection()

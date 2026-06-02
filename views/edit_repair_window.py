@@ -1,16 +1,15 @@
 import os
 import json
-import shutil
+import shutil  # 🎯 確実にシステム全体で有効化
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 from tkcalendar import DateEntry
 from datetime import datetime
 from typing import Dict, Any
-from views.edit_repair_window import EditRepairWindow
-# 🎯 Model層とDBManagerのインポート
-from models.db_manager import DBManager
-from models.repair_model import RepairModel
+
+# models フォルダから各モデルをインポート
 from models.master_model import MasterModel
+from models.repair_model import RepairModel
 
 # ==================================================
 # 1. NullableDateEntry (日付拡張ウィジェット)
@@ -47,11 +46,11 @@ class NullableDateEntry(DateEntry):
 
 
 # ==================================================
-# 2. RepairInfoWindow (お送りいただいた履歴一覧画面)
+# 2. RepairInfoWindow (履歴一覧画面)
 # ==================================================
 class RepairInfoWindow(tk.Toplevel):
     """器材情報と修理履歴を管理するウィンドウクラス。"""
-    DB_NAME = DBManager.DB_PATH
+    DB_NAME = RepairModel.DB_PATH if hasattr(RepairModel, "DB_PATH") else "equipment_management.db"
 
     FORM_CONFIG = [
         ("カテゴリ名", "categorie_name"), ("器材番号", "equipment_code"),
@@ -126,7 +125,6 @@ class RepairInfoWindow(tk.Toplevel):
         self.repair_tree.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.repair_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        # 🎯 Treeviewをダブルクリックしても修正画面が開くようにバインド追加
         self.repair_tree.bind("<Double-Button-1>", lambda e: self._open_edit_repair())
 
     def _load_and_display_data(self):
@@ -137,7 +135,7 @@ class RepairInfoWindow(tk.Toplevel):
             self.destroy()
             return
         if not data:
-            messagebox.showerror("データエラー", f"器材コード = {self.equipment_code} のデータが見つかりません。")
+            messagebox.showerror("データエラー", f"器材コード = {self.equipment_code} のデータが見つালীません。")
             self.destroy()
             return
         self.equipment_db_id = data["id"]
@@ -163,7 +161,6 @@ class RepairInfoWindow(tk.Toplevel):
         if not getattr(self, "equipment_code", None):
             messagebox.showwarning("注意", "器材が選択されていません。")
             return
-        # 🎯 同一ファイル内にあるのでそのまま呼び出す
         EditRepairWindow(self, self.DB_NAME, self.equipment_code, None, self.refresh_repair_history)
 
     def _open_edit_repair(self):
@@ -172,7 +169,6 @@ class RepairInfoWindow(tk.Toplevel):
             messagebox.showwarning("選択なし", "修正する修理情報を選択してください。")
             return
         repair_id = int(selected_ids[0])
-        # 🎯 同一ファイル内にあるのでそのまま呼び出す
         EditRepairWindow(self, self.DB_NAME, self.equipment_code, repair_id, self.refresh_repair_history)
 
 
@@ -228,33 +224,16 @@ class EditRepairWindow(tk.Toplevel):
             widget.insert(0, value)
 
     def _create_widgets(self):
-        # 🎯【解決策】readonlyのまま、見た目だけを「白背景・黒文字」に強制変更する
-        style = ttk.Style()
-        style.map('TCombobox',
-            fieldbackground=[('readonly', 'white')],
-            foreground=[('readonly', 'black')]
-        )
-
         frame_top = tk.Frame(self)
         frame_top.pack(pady=10)
-        
         for i, label in enumerate(self.FIELD_LABELS):
             tk.Label(frame_top, text=label).grid(row=i, column=0, padx=5, pady=3, sticky="e")
-            
-            # state="readonly" は維持したまま、上記のstyle設定によって白背景になります
-            if "日" in label: 
-                entry = NullableDateEntry(frame_top, date_pattern="yyyy-mm-dd", width=38)
-            elif label == "対応": 
-                entry = ttk.Combobox(frame_top, values=list(self.types.values()), state="readonly", width=37)
-            elif label == "状態": 
-                entry = ttk.Combobox(frame_top, values=list(self.statuses.values()), state="readonly", width=37)
-            elif label == "業者": 
-                entry = ttk.Combobox(frame_top, values=list(self.vendors.values()), state="readonly", width=37)
-            elif label in ("詳細", "備考"): 
-                entry = tk.Text(frame_top, width=40, height=3)
-            else: 
-                entry = tk.Entry(frame_top, width=40)
-                
+            if "日" in label: entry = NullableDateEntry(frame_top, date_pattern="yyyy-mm-dd", width=38)
+            elif label == "対応": entry = ttk.Combobox(frame_top, values=list(self.types.values()), state="readonly", width=37)
+            elif label == "状態": entry = ttk.Combobox(frame_top, values=list(self.statuses.values()), state="readonly", width=37)
+            elif label == "業者": entry = ttk.Combobox(frame_top, values=list(self.vendors.values()), state="readonly", width=37)
+            elif label in ("詳細", "備考"): entry = tk.Text(frame_top, width=40, height=3)
+            else: entry = tk.Entry(frame_top, width=40)
             entry.grid(row=i, column=1, padx=5, pady=3, sticky="w")
             self.entries[label] = entry
 
@@ -268,8 +247,6 @@ class EditRepairWindow(tk.Toplevel):
     def _create_buttons(self):
         frame_btn = tk.Frame(self)
         frame_btn.pack(pady=10)
-        green_color = "#2E7D32"
-
         tk.Button(frame_btn, text="保存", width=12, command=self.save_changes).pack(side="left", padx=10)
         tk.Button(frame_btn, text="PDF添付", width=12, command=self.attach_pdf).pack(side="left", padx=10)
         tk.Button(frame_btn, text="保存せずに戻る", width=15, command=self.destroy).pack(side="left", padx=10)
@@ -330,36 +307,91 @@ class EditRepairWindow(tk.Toplevel):
         if self.refresh_callback: self.refresh_callback()
 
     def attach_pdf(self):
-        try: self.save_changes_without_close()
-        except ValueError: return
-        except Exception as e: messagebox.showerror("保存エラー", f"保存中にエラーが発生しました:\n{e}"); return
+        """
+        修理情報に対してPDFファイルを安全に添付するメソッド（絶対パス・エラー自動回避版）
+        """
+        # 🎯【超重要】どこから起動されても絶対にエラーにしないための強制インポート＆パス補正
+        import os
+        import sys
+        import shutil
+        import traceback
 
-        file_path = filedialog.askopenfilename(title="PDFを選択", filetypes=[("PDFファイル", "*.pdf")])
-        if not file_path: return
-        default_name = os.path.basename(file_path)
-        new_name = simpledialog.askstring("ファイル名入力", f"保存するPDFファイル名を入力してください:", initialvalue=os.path.splitext(default_name)[0], parent=self)
-        if not new_name: return
-        if not new_name.lower().endswith(".pdf"): new_name += ".pdf"
+        # プロジェクトルート（C:\equipment_management）を検索パスに強制追加
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
 
         try:
-            save_dir = os.path.join("attached_pdfs", str(self.repair_id))
+            # 1. 画面の入力内容を一時保存（新規登録時はここでDBに書き込まれIDが発番される）
+            self.save_changes_without_close()
+        except ValueError:
+            return  # 入力チェックエラー（日付不正など）の場合は処理を中断
+        except Exception as e:
+            error_details = traceback.format_exc()
+            messagebox.showerror("保存エラー", f"PDFを添付する前の、修理情報の保存中にエラーが発生しました:\n\n{error_details}")
+            return
+
+        # 2. 最新の repair_id がクラス変数に保持されているか厳重チェック
+        current_repair_id = getattr(self, "repair_id", None)
+        if not current_repair_id:
+            messagebox.showwarning("注意", "修理情報の保存に失敗したか、修理IDが取得できないためPDFを添付できません。")
+            return
+
+        # 3. ユーザーに添付したいPDFファイルを選択させる
+        file_path = filedialog.askopenfilename(title="PDFを選択", filetypes=[("PDFファイル", "*.pdf")])
+        if not file_path:
+            return  # キャンセルされた場合は終了
+            
+        # 4. 保存する新しいファイル名を入力させる
+        default_name = os.path.basename(file_path)
+        new_name = simpledialog.askstring(
+            "ファイル名入力",
+            "保存するPDFファイル名を入力してください（拡張子 .pdf は自動で付きます）:",
+            initialvalue=os.path.splitext(default_name)[0],
+            parent=self
+        )
+        if not new_name:
+            return  # キャンセルされた場合は終了
+
+        # 拡張子の自動補正
+        if not new_name.lower().endswith(".pdf"):
+            new_name += ".pdf"
+
+        # 5. コピー処理の実行（ここからファイル操作）
+        try:
+            # 🎯 保存先フォルダを「C:\equipment_management\attached_pdfs\修理ID」に絶対パスで完全固定
+            # viewsフォルダの1つ上の階層（プロジェクトルート）を確実に取得
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            save_dir = os.path.join(base_dir, "attached_pdfs", str(current_repair_id))
+            
+            # フォルダがなければ自動作成する（attached_pdfs や 修理ID フォルダを自動で作る）
             os.makedirs(save_dir, exist_ok=True)
+            
+            # 最終的なコピー先フルパスを構築
             save_path = os.path.join(save_dir, new_name)
             
-            # コピー処理
-            #$インポートモジュールをその場で直接指定して実行します
-            #__import__('shutil').copy(file_path, save_path)
+            # 🎯 ファイルのコピーを実行
             shutil.copy(file_path, save_path)
 
-            messagebox.showinfo("完了", f"PDFを添付しました。")
+            # 6. 成功時の画面更新処理
+            messagebox.showinfo("完了", f"PDFを正常に添付しました。\n\n保存先:\n{save_path}")
             self.load_pdf_list()
-            self.load_repair_data(self.repair_id)
+            self.load_repair_data(current_repair_id)
+            
+            # ウィンドウが後ろに隠れないように最前面へ引き揚げる
             self.lift()
             self.focus_force()
-            
-        except Exception as e: 
-            # 🎯 末尾の閉じ括弧を忘れずに改行して記述
-            messagebox.showerror("添付エラー", f"PDF添付中にエラーが発生しました:\n{e}")
+
+        except Exception as e:
+            # 🎯 万が一これでも失敗した場合は、裏で起きた本物の原因（ログ）をダイアログに表示する
+            detailed_log = traceback.format_exc()
+            messagebox.showerror(
+                "添付エラー", 
+                f"PDFファイルのコピー中にエラーが発生しました。\n"
+                f"フォルダのアクセス権限やファイルがロックされていないか確認してください。\n\n"
+                f"【エラー詳細ログ】:\n{detailed_log}"
+            )
 
     def load_pdf_list(self):
         self.pdf_listbox.delete(0, tk.END)
