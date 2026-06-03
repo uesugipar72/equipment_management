@@ -4,7 +4,7 @@ import tkinter.font as tkFont
 import os
 import subprocess
 import json
-
+from utils.excel_exporter import export_treeview_to_excel
 # プロジェクトルートからの絶対インポート表記に統一
 from models.master_model import MasterModel
 from models.equipment_model import EquipmentModel
@@ -17,7 +17,6 @@ try:
 except Exception as e:
     print(f"[Warning] repair_window の読み込みをスキップしました (後ほど作成します): {e}")
     HAS_REPAIR_WINDOW = False
-
 
 class EquipmentManagerMainWindow:
     def __init__(self, root):
@@ -44,6 +43,15 @@ class EquipmentManagerMainWindow:
 
     def _create_widgets(self):
         """画面ウィジェットの配置"""
+        # 🎨 readonlyのコンボボックスが「白背景・黒文字」になるように共通ルールを定義
+        style = ttk.Style()
+        style.theme_use('clam') # 描画エンジンを強制同期
+        style.map('TCombobox',
+            fieldbackground=[('readonly', 'white')],
+            foreground=[('readonly', 'black')]
+        )
+        style.configure('TCombobox', fieldbackground='white', background='white')
+
         frame_search = ttk.LabelFrame(self.root, text="検索条件入力", padding=10)
         frame_search.pack(fill="x", padx=10, pady=5)
 
@@ -60,11 +68,16 @@ class EquipmentManagerMainWindow:
             lbl.grid(row=i // 4, column=(i % 4) * 2, padx=5, pady=5, sticky="e")
 
             if master_key:
-                combo = ttk.Combobox(frame_search, state="readonly", width=18)
+                # 🎯 1. 初期状態を "normal" (入力可) にして、強制的に白背景で作成する
+                combo = ttk.Combobox(frame_search, state="normal", width=18)
                 master_data = MasterModel.fetch_all(master_key)
                 combo["values"] = [""] + [row[1] for row in master_data]
                 combo.grid(row=i // 4, column=(i % 4) * 2 + 1, padx=5, pady=5, sticky="w")
                 combo.set("")
+                
+                # 🎯 2. 画面が開いた直後（100ミリ秒後）に、自動で "readonly" に切り替える
+                self.root.after(100, lambda c=combo: c.configure(state="readonly"))
+                
                 self.entries[label] = combo
             else:
                 entry = ttk.Entry(frame_search, width=20)
@@ -81,7 +94,7 @@ class EquipmentManagerMainWindow:
         btn_reset = ttk.Button(frame_buttons, text="条件初期化", command=self.reset_conditions)
         btn_reset.pack(side="left", padx=5)
 
-        btn_export = ttk.Button(frame_buttons, text="Excel出力", command=self.export_to_excel)
+        btn_export = ttk.Button(frame_buttons, text="Excel出力", command=self._export_to_excel)
         btn_export.pack(side="left", padx=5)
 
         frame_table = ttk.LabelFrame(self.root, text="機器一覧 (ダブルクリックで修理履歴を表示)", padding=10)
@@ -195,16 +208,33 @@ class EquipmentManagerMainWindow:
         else:
             messagebox.showinfo("案内", f"器材番号: {equipment_code}\n修理履歴画面は、次のステップで views/repair_window.py を配置した後に連動します。")
 
-    def export_to_excel(self):
-        all_data = [self.tree.item(item, "values") for item in self.tree.get_children()]
-        if not all_data:
-            messagebox.showinfo("情報", "エクスポートするデータがありません。")
-            return
-        headers = ["機器分類", "機器コード", "機器名", "状態", "部門", "部屋", "製造元", "販売元", "備考", "購入日", "モデル"]
-        try:
-            json_data = json.dumps(all_data, ensure_ascii=False)
-            json_headers = json.dumps(headers, ensure_ascii=False)
-            subprocess.run(["python", "export_to_excel.py", json_data, json_headers], check=True)
-            messagebox.showinfo("成功", "Excelファイルを出力しました。")
-        except Exception as e:
-            messagebox.showerror("エラー", f"Excel出力中にエラーが発生しました:\n{e}")
+    def _export_to_excel(self):
+        """メイン画面の一覧（Treeview）の内容を共通のExcel出力関数で出力する"""
+        # 1. 現在選択されている行から器材番号を取得してデフォルトのファイル名を設定
+        selected_items = self.tree.selection()
+        if selected_items:
+            row_values = self.tree.item(selected_items[0], "values")
+            equipment_code = row_values[1]  # 2番目の列（器材番号）
+            default_filename = f"{equipment_code}_検索結果.xlsx"
+        else:
+            from datetime import datetime
+            today_str = datetime.now().strftime("%Y%m%d")
+            default_filename = f"機器一覧_{today_str}.xlsx"
+
+        # 2. メイン画面のTreeview（self.tree）に対応する列（マッピング用）の設定を定義
+        main_column_config = {
+            "category": {"text": "機器分類"}, 
+            "code": {"text": "器材番号"}, 
+            "name": {"text": "機器名"}, 
+            "status": {"text": "状態"},
+            "dept": {"text": "部門"}, 
+            "room": {"text": "部屋"}, 
+            "maker": {"text": "製造元"}, 
+            "vendor": {"text": "販売元"},
+            "remarks": {"text": "備考"}, 
+            "p_date": {"text": "購入日"}, 
+            "model": {"text": "モデル"}
+        }
+
+        # 3. 切り出した共通関数を呼び出す（メイン画面のTreeviewオブジェクト `self.tree` を渡す）
+        export_treeview_to_excel(self.tree, main_column_config, default_filename)

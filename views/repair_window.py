@@ -46,9 +46,6 @@ class NullableDateEntry(DateEntry):
             super().set_date(value)
 
 
-# ==================================================
-# 2. RepairInfoWindow (お送りいただいた履歴一覧画面)
-# ==================================================
 class RepairInfoWindow(tk.Toplevel):
     """器材情報と修理履歴を管理するウィンドウクラス。"""
     DB_NAME = DBManager.DB_PATH
@@ -107,7 +104,9 @@ class RepairInfoWindow(tk.Toplevel):
             )
         button_frame = tk.Frame(parent)
         button_frame.grid(row=len(self.FORM_CONFIG), column=0, columnspan=2, pady=20)
-        tk.Button(button_frame, text="修理情報追加", command=self._open_add_repair).pack(side=tk.LEFT, padx=5)
+        
+        # 🎨 メイン画面の追加ボタンも緑調に変更
+        tk.Button(button_frame, text="修理情報追加", bg="#2E7D32", fg="white", activebackground="#1B5E20", activeforeground="white", command=self._open_add_repair).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="修理情報修正", command=self._open_edit_repair).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="閉じる", command=self.destroy).pack(side=tk.LEFT, padx=5)
 
@@ -228,11 +227,19 @@ class EditRepairWindow(tk.Toplevel):
             widget.insert(0, value)
 
     def _create_widgets(self):
-        # 🎯【解決策】readonlyのまま、見た目だけを「白背景・黒文字」に強制変更する
+        # 🎯【初回グレー対策】テーマを「clam」に指定して描画を強制同期させる
         style = ttk.Style()
+        style.theme_use('clam')
+        
+        # readonlyの時の「白背景・黒文字」を設定
         style.map('TCombobox',
             fieldbackground=[('readonly', 'white')],
             foreground=[('readonly', 'black')]
+        )
+        # 💡 通常時（非アクティブ時）の背景も完全に白に固定
+        style.configure('TCombobox', 
+            fieldbackground='white', 
+            background='white'
         )
 
         frame_top = tk.Frame(self)
@@ -241,7 +248,6 @@ class EditRepairWindow(tk.Toplevel):
         for i, label in enumerate(self.FIELD_LABELS):
             tk.Label(frame_top, text=label).grid(row=i, column=0, padx=5, pady=3, sticky="e")
             
-            # state="readonly" は維持したまま、上記のstyle設定によって白背景になります
             if "日" in label: 
                 entry = NullableDateEntry(frame_top, date_pattern="yyyy-mm-dd", width=38)
             elif label == "対応": 
@@ -268,10 +274,13 @@ class EditRepairWindow(tk.Toplevel):
     def _create_buttons(self):
         frame_btn = tk.Frame(self)
         frame_btn.pack(pady=10)
+        
+        # 🎨 ボタン用の緑色カラーコード
         green_color = "#2E7D32"
 
-        tk.Button(frame_btn, text="保存", width=12, command=self.save_changes).pack(side="left", padx=10)
-        tk.Button(frame_btn, text="PDF添付", width=12, command=self.attach_pdf).pack(side="left", padx=10)
+        # 🎯 保存ボタン・PDF添付ボタンを緑色に装飾
+        tk.Button(frame_btn, text="保存", width=12, bg=green_color, fg="white", activebackground="#1B5E20", activeforeground="white", command=self.save_changes).pack(side="left", padx=10)
+        tk.Button(frame_btn, text="PDF添付", width=12, bg=green_color, fg="white", activebackground="#1B5E20", activeforeground="white", command=self.attach_pdf).pack(side="left", padx=10)
         tk.Button(frame_btn, text="保存せずに戻る", width=15, command=self.destroy).pack(side="left", padx=10)
 
     def load_repair_data(self, repair_id):
@@ -347,8 +356,6 @@ class EditRepairWindow(tk.Toplevel):
             save_path = os.path.join(save_dir, new_name)
             
             # コピー処理
-            #$インポートモジュールをその場で直接指定して実行します
-            #__import__('shutil').copy(file_path, save_path)
             shutil.copy(file_path, save_path)
 
             messagebox.showinfo("完了", f"PDFを添付しました。")
@@ -358,7 +365,6 @@ class EditRepairWindow(tk.Toplevel):
             self.focus_force()
             
         except Exception as e: 
-            # 🎯 末尾の閉じ括弧を忘れずに改行して記述
             messagebox.showerror("添付エラー", f"PDF添付中にエラーが発生しました:\n{e}")
 
     def load_pdf_list(self):
