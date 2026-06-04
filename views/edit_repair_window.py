@@ -148,12 +148,26 @@ class RepairInfoWindow(tk.Toplevel):
             var.set(self.equipment_data.get(key, ""))
 
     def refresh_repair_history(self):
+        """修理履歴を取得し、依頼日の昇順（古い順）に並び替えて一覧に表示する"""
         for item in self.repair_tree.get_children():
             self.repair_tree.delete(item)
         try:
             repairs = RepairModel.fetch_history_by_code(self.equipment_code)
-            for row in repairs:
+            
+            # 🎯 依頼日（row[2]）を基準に昇順（古い順）ソートを実行
+            # 日付データが空文字列やNoneの場合でもエラーにならないよう、空白は未来の日付として扱う安全設計
+            def sort_key(row):
+                date_str = row[2]  # row[1]が状態、row[2]が依頼日
+                if not date_str:
+                    return "0000-01-01"  # 日付未入力のものは一番下に配置
+                return str(date_str)
+
+            sorted_repairs = sorted(repairs, key=sort_key, reverse=True)
+
+            # 🎯 ソート済みのデータを一覧（Treeview）に追加
+            for row in sorted_repairs:
                 self.repair_tree.insert("", tk.END, iid=str(row[0]), values=row[1:])
+                
         except Exception as e:
             messagebox.showerror("読込エラー", f"修理履歴の取得中にエラーが発生しました:\n{e}")
 
