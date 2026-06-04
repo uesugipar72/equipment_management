@@ -10,7 +10,7 @@ def main():
         sys.path.insert(0, current_dir)
 
     try:
-        # パスを通した後に、満を持してメイン画面をインポートする
+        # パスを通した後に、メイン画面をインポートする
         from views.main_window import EquipmentManagerMainWindow
         
         root = tk.Tk()
